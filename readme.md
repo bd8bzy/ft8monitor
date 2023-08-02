@@ -12,7 +12,7 @@ A online demo page is [here](https://ft8mon.bd8bzy.net).
 
 
 # Screenshot
-![](https://github.com/bd8bzy/ft8monitor/screenshot.png "Screenshot") 
+![](https://raw.githubusercontent.com/bd8bzy/ft8monitor/main/screenshot.png "Screenshot") 
 
 
 # Architecture
