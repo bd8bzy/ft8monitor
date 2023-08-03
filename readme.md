@@ -309,9 +309,9 @@ Files under project frontend/ dir is a demonstration [echarts](https://echarts.a
 
 
 # Todos:
-- Add a local cache of decoded messages on Monitor to cope with temporary station disconnection.
-- Replace all the GUI apps with terminal apps for true headless operation.
-- Remote band switching via web server.
+- Add a local cache of decoded messages on monitor to cope with temporary station disconnection.
+- Crawl some space conditioning statistical metrics to aid analysis.
+- Band switching via remote web server.
 
 
 # License
