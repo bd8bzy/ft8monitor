@@ -12,44 +12,66 @@ import socket
 import sys
 import getopt
 from threading import Thread
-from queue import Queue
+from queue import Queue, Empty
 
+# Default options.
+addr = "127.0.0.1"
+port = 1234
+freq = 50400000
+samplerate = 1200000
 MAX_DATA_BUFF = 1024000
-job_done = False #pylint: disable=C0103
+
+# pylint: disable=C0103
+job_done = False
+
 
 def log(msg) -> None:
     print(msg, file=sys.stderr)
 
 
+# Writing to stdout and pass data to pipe
 def write_to_stdout(dataq: Queue) -> None:
     while not job_done:
-        data = dataq.get()
-        sys.stdout.buffer.write(data)
+        # notice: this may cause dead-lock because get() blocks when there's no elements in the queue and
+        # this thread will not exit!
+        # Main thread will block as well because join() is called when a keyboard interreput is detected!
+        # data = dataq.get()
+
+        # Maybe this is better
+        try:
+            data = dataq.get(block=False, timeout=0.1)
+            sys.stdout.buffer.write(data)
+        except Empty:
+            pass
     log("job done and exit thread...")
 
+
 def usage():
-    print("""RSP1 tcp stream forwarder, print sample data to stdout.
+    print(
+        """RSP1 tcp stream forwarder, print sample data to stdout.
             -h, --help                  Print this message
             -a, --address=127.0.0.1     rsp_tcp server listen address
             -p, --port=1234             rsp_tcp server listen port
             -f, --freq=50400000         frequency_to_tune_to [Hz]
             -s, --samplerate=1200000    samplerate
-        """)
+        """
+    )
+
 
 def main() -> None:
+    global addr,port
     tq = Queue(MAX_DATA_BUFF)
 
     try:
-        opts, _ = getopt.getopt(sys.argv[1:], "ha:p:f:s:", ["help", "address=", "port=", "freq=", "samplerate="])
+        opts, _ = getopt.getopt(
+            sys.argv[1:],
+            "ha:p:f:s:",
+            ["help", "address=", "port=", "freq=", "samplerate="],
+        )
     except getopt.GetoptError as err:
-        print(err)
+        log(err)
         usage()
         sys.exit(2)
-
-    addr = '127.0.0.1'
-    port = 1234
-    freq = 50400000
-    samplerate = 1200000
     for o, a in opts:
         if o in ("-h", "--help"):
             usage()
@@ -63,7 +85,11 @@ def main() -> None:
         elif o in ("-s", "--samplerate"):
             samplerate = int(a)
         else:
-            assert False, "unhandled option!"
+            # It is not user-friendly to assert directly without try-catch...
+            # assert False, "unhandled option!"
+            log("Unhandled Option!")
+            usage()
+            return
 
     try:
         ts = Thread(target=write_to_stdout, args=(tq,))
@@ -79,13 +105,13 @@ def main() -> None:
             log(f"Connection made with rsp_tcp server at {addr}:{port}.")
 
             freqb = pack(">ci", b"\x01", freq)
-            freqs = ' '.join('{:02x}'.format(x) for x in freqb)
+            freqs = " ".join("{:02x}".format(x) for x in freqb)
             log(f"Setting center frequency to: {freq}({freqs}).")
             sock.sendall(freqb)
             sleep(2)
 
             rateb = pack("!ci", b"\x02", samplerate)
-            rates = ' '.join('{:02x}'.format(x) for x in rateb)
+            rates = " ".join("{:02x}".format(x) for x in rateb)
             log(f"Setting sample rate to: {samplerate} ({rates})")
             sock.sendall(rateb)
             sleep(2)
@@ -95,44 +121,47 @@ def main() -> None:
             sock.sendall(tuner_gain_mode_enable)
             sleep(2)
 
-            #RPS1 gain within 0~491
+            # RPS1 gain within 0~491
             LNA_state = pack(">ci", b"\x04", 300)
             log("Setting gain to 300.")
             sock.sendall(LNA_state)
             sleep(2)
 
-            #LNA GR (dB) by Frequency Range and LNAstate for RSP1: 0:0db, 1-24db, 2-19db, 3-43db
+            # LNA GR (dB) by Frequency Range and LNAstate for RSP1: 0:0db, 1-24db, 2-19db, 3-43db
             LNA_state = pack(">ci", b"\x20", 3)
             log("Setting LNA State to 3.")
             sock.sendall(LNA_state)
             sleep(2)
 
-            #Now we start recv bytes from rsp_tcp.
-            #Just before sample bytes,let's drop some message from stream.
-            #First: rtl dongle info
-            dongle_info = unpack('!cccc', sock.recv(4))
-            tuner_type = unpack('!I', sock.recv(4))
-            tuner_gain_count = unpack('!I', sock.recv(4))
-            log(f"""Got some dongle info from rsp device:
+            # Now we start recv bytes from rsp_tcp.
+            # Just before sample bytes,let's drop some message from stream.
+            # First: rtl dongle info
+            dongle_info = unpack("!cccc", sock.recv(4))
+            tuner_type = unpack("!I", sock.recv(4))
+            tuner_gain_count = unpack("!I", sock.recv(4))
+            log(
+                f"""Got some dongle info from rsp device:
     dongle: {b"".join(dongle_info).decode("ascii")}
     tuner_type: {tuner_type[0]}
     tuner_gain_count: {tuner_gain_count[0]}
-""")
+"""
+            )
 
-            #Then: rsp extended_capabilities info
-            magic = unpack('!cccc', sock.recv(4))
-            version = unpack('!I', sock.recv(4))
-            capabilities = unpack('!I', sock.recv(4))
-            __reserved__ = unpack('!I', sock.recv(4))
-            hardware_version = unpack('!I', sock.recv(4))
-            sample_format = unpack('!I', sock.recv(4))
-            antenna_input_count = unpack('!B', sock.recv(1))
-            third_antenna_name = unpack('!ccccccccccccc', sock.recv(13))
-            third_antenna_freq_limit = unpack('!i', sock.recv(4))
-            tuner_count = unpack('!B', sock.recv(1))
-            ifgr_min = unpack('!B', sock.recv(1))
-            ifgr_max = unpack('!B', sock.recv(1))
-            log(f"""Got some extended capabilities info from rsp device:
+            # Then: rsp extended_capabilities info
+            magic = unpack("!cccc", sock.recv(4))
+            version = unpack("!I", sock.recv(4))
+            capabilities = unpack("!I", sock.recv(4))
+            __reserved__ = unpack("!I", sock.recv(4))
+            hardware_version = unpack("!I", sock.recv(4))
+            sample_format = unpack("!I", sock.recv(4))
+            antenna_input_count = unpack("!B", sock.recv(1))
+            third_antenna_name = unpack("!ccccccccccccc", sock.recv(13))
+            third_antenna_freq_limit = unpack("!i", sock.recv(4))
+            tuner_count = unpack("!B", sock.recv(1))
+            ifgr_min = unpack("!B", sock.recv(1))
+            ifgr_max = unpack("!B", sock.recv(1))
+            log(
+                f"""Got some extended capabilities info from rsp device:
     magic: {b"".join(magic).decode("ascii")}
     version: {version[0]}
     capabilities: {capabilities[0]}
@@ -145,17 +174,19 @@ def main() -> None:
     tuner_count: {tuner_count[0]}
     ifgr_min: {ifgr_min[0]}
     ifgr_max: {ifgr_max[0]}
-""")
-            #Finaly, the realtime sample bytes from there...
-            log('Begin forwarding sample stream...')
+"""
+            )
+            # Finaly, the realtime sample bytes from there...
+            log("Begin forwarding sample stream...")
             while True:
                 tq.put(sock.recv(512))
 
     except KeyboardInterrupt:
-        global job_done     #pylint: disable=W0603
+        global job_done  
+        # pylint: disable=W0603
         job_done = True
         ts.join()
 
 
-if __name__ == '__main__' :
+if __name__ == "__main__":
     main()

@@ -7,11 +7,14 @@ import sqlite3
 import json
 import getopt
 from typing import List
+# if you want to extend your backend someday then i suggest you using flask or django 
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import urlparse, parse_qs
 from data_server import Data_Server, Monitor_Message, Minutes_Record, Hours_Record, Minutes_Record_Encoder, Hours_Record_Encoder
 
 
+# be careful of sql injection... Maybe what you need is orm?
+# It may be more elegent to avoid writing sql directly....
 class Sqlite_Server(Data_Server):
     TB_MINUTES = 'ft8mon_minutes'
     TB_HOURS = 'ft8mon_hours'
